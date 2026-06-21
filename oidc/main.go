@@ -63,6 +63,11 @@ type GitHubUser struct {
 	AvatarURL string `json:"avatar_url"`
 }
 
+type CodeVerifierChallengePair struct {
+	CodeVerifier  string
+	CodeChallenge string
+}
+
 //go:embed templates/*
 var templatesFS embed.FS
 
@@ -88,17 +93,24 @@ func main() {
 		}
 
 		// Store state for later verification
-		stateCache.Set(state, true, cache.DefaultExpiration)
 
 		codeVerifier := generateCodeVerifier()
 		codeChallenge := generateCodeChallenge(codeVerifier)
 		codeVerifierChallengeCache.Add(codeChallenge, codeVerifier, 10*time.Minute)
+		verifierChallengePair :=
+			CodeVerifierChallengePair{
+				CodeVerifier:  codeVerifier,
+				CodeChallenge: codeChallenge,
+			}
+		stateCache.Set(state, verifierChallengePair, cache.DefaultExpiration)
 
 		// Redirect to GitHub for authentication
 		authURL := oauth2Config.AuthCodeURL(
 			state,
 			oauth2.SetAuthURLParam("code_challenge", codeChallenge),
 			oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+			//oauth2.SetAuthURLParam("response_type", "id_token"),
+			//oauth2.SetAuthURLParam("nonce", "1234"),
 		)
 		c.Redirect(http.StatusFound, authURL)
 	},
@@ -108,11 +120,15 @@ func main() {
 	r.GET("/callback", func(c *gin.Context) {
 		// Retrieve and verify state
 		state := c.Query("state")
-		if _, exists := stateCache.Get(state); !exists {
+		cachedValue, exists := stateCache.Get(state)
+		if !exists {
 			c.String(http.StatusBadRequest, "Invalid state value")
 			return
 		}
 		stateCache.Delete(state)
+
+		codeVerifierChallenge := cachedValue.(CodeVerifierChallengePair)
+		_ = codeVerifierChallenge
 
 		// Retrieve code
 		code := c.Query("code")
@@ -122,7 +138,12 @@ func main() {
 		}
 
 		// Exchange code for access token
-		token, err := oauth2Config.Exchange(context.Background(), code)
+		token, err := oauth2Config.Exchange(context.Background(),
+			code,
+			oauth2.SetAuthURLParam("code_verifier", codeVerifierChallenge.CodeVerifier),
+			//oauth2.SetAuthURLParam("grant_type", "authorization_code"),
+			//oauth2.SetAuthURLParam("client_id", ""),
+		)
 		if err != nil {
 			c.String(
 				http.StatusInternalServerError,
