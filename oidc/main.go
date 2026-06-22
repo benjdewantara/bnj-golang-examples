@@ -40,7 +40,7 @@ var (
 		ClientSecret: clientSecret,
 		RedirectURL:  redirectURL,
 		Endpoint:     endpoints.AzureAD(""),
-		Scopes:       []string{"openid", "id_token"},
+		Scopes:       []string{"openid", "email", "profile"},
 	}
 
 	// GitHub user information API
@@ -140,9 +140,11 @@ func main() {
 		// Exchange code for access token
 		token, err := oauth2Config.Exchange(context.Background(),
 			code,
+			oauth2.SetAuthURLParam("grant_type", "authorization_code"),
 			oauth2.SetAuthURLParam("code_verifier", codeVerifierChallenge.CodeVerifier),
-			//oauth2.SetAuthURLParam("grant_type", "authorization_code"),
-			//oauth2.SetAuthURLParam("client_id", ""),
+			oauth2.SetAuthURLParam("code", code),
+			oauth2.SetAuthURLParam("client_id", clientID),
+			oauth2.SetAuthURLParam("redirect_uri", "http://localhost:8080/callback"),
 		)
 		if err != nil {
 			c.String(
